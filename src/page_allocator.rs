@@ -3,6 +3,11 @@ use core::{
     cmp::min,
     ptr,
 };
+use lazy_static::lazy_static;
+
+lazy_static! {
+    pub static ref PAGE_SIZE: usize = page_size();
+}
 
 #[cfg(unix)]
 pub fn page_size() -> usize {
@@ -32,7 +37,7 @@ pub static PAGE_ALLOCATOR: PageAllocator = PageAllocator {};
 
 unsafe impl GlobalAlloc for PageAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let aligned_layout = match layout.align_to(page_size()) {
+        let aligned_layout = match layout.align_to(*PAGE_SIZE) {
             Ok(l) => l.pad_to_align(),
             Err(_) => return ptr::null_mut(),
         };
@@ -75,13 +80,13 @@ unsafe impl GlobalAlloc for PageAllocator {
         #[cfg(windows)]
         libc::VirtualFree(ptr, 0, libc::MEM_RELEASE);
         #[cfg(not(windows))]
-        if let Ok(aligned) = layout.align_to(page_size()) {
+        if let Ok(aligned) = layout.align_to(*PAGE_SIZE) {
             libc::munmap(ptr as _, aligned.pad_to_align().size());
         }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        let p_size = page_size();
+        let p_size = *PAGE_SIZE;
         let old_aligned_size = match layout.align_to(p_size) {
             Ok(l) => l.pad_to_align(),
             Err(_) => return ptr::null_mut(),

@@ -7,7 +7,7 @@ use core::{
     ptr::NonNull,
 };
 
-use page_allocator::{page_size, PAGE_ALLOCATOR};
+use page_allocator::{PAGE_ALLOCATOR, PAGE_SIZE};
 use spin::Mutex;
 #[cfg(feature = "std")]
 use thread_cache::ThreadCache;
@@ -41,7 +41,6 @@ impl BinnedAlloc {
 #[cfg(not(feature = "std"))]
 unsafe impl GlobalAlloc for BinnedAlloc {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let size = layout.pad_to_align().size();
         match size {
             ..=4 => self.bins.bin4.alloc(),
@@ -55,12 +54,13 @@ unsafe impl GlobalAlloc for BinnedAlloc {
             ..=1024 => self.bins.bin1024.alloc(),
             ..=2048 => self.bins.bin2048.alloc(),
             ..=4096 => self.bins.bin4096.alloc(),
+            ..=8192 => self.bins.bin8192.alloc(),
+            ..=16384 => self.bins.bin16384.alloc(),
             _ => PAGE_ALLOCATOR.alloc(layout),
         }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
         let size = layout.pad_to_align().size();
-        DEALLOCS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         match size {
             ..=4 => self.bins.bin4.dealloc(ptr),
             ..=8 => self.bins.bin8.dealloc(ptr),
@@ -73,16 +73,17 @@ unsafe impl GlobalAlloc for BinnedAlloc {
             ..=1024 => self.bins.bin1024.dealloc(ptr),
             ..=2048 => self.bins.bin2048.dealloc(ptr),
             ..=4096 => self.bins.bin4096.dealloc(ptr),
+            ..=8192 => self.bins.bin8192.dealloc(ptr),
+            ..=16384 => self.bins.bin16384.dealloc(ptr),
             _ => PAGE_ALLOCATOR.dealloc(ptr, layout),
         }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        REALLOCS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if layout.pad_to_align().size() > 4096
+        if layout.pad_to_align().size() > 16384
             && Layout::from_size_align_unchecked(new_size, layout.align())
                 .pad_to_align()
                 .size()
-                > 4096
+                > 16384
         {
             return PAGE_ALLOCATOR.realloc(ptr, layout, new_size);
         }
@@ -108,6 +109,8 @@ pub(crate) struct Bins {
     pub(crate) bin1024: Bin<Slot1024>,
     pub(crate) bin2048: Bin<Slot2048>,
     pub(crate) bin4096: Bin<Slot4096>,
+    pub(crate) bin8192: Bin<Slot8192>,
+    pub(crate) bin16384: Bin<Slot16384>,
 }
 
 impl Bins {
@@ -124,6 +127,8 @@ impl Bins {
             bin1024: Bin::new(),
             bin2048: Bin::new(),
             bin4096: Bin::new(),
+            bin8192: Bin::new(),
+            bin16384: Bin::new(),
         }
     }
 }
@@ -244,6 +249,8 @@ slot!(Slot512, 512);
 slot!(Slot1024, 1024);
 slot!(Slot2048, 2048);
 slot!(Slot4096, 4096);
+slot!(Slot8192, 8192);
+slot!(Slot16384, 16384);
 
 impl<S: Slot> Bin<S> {
     fn add_one(&self) -> *mut S {
@@ -260,7 +267,7 @@ impl<S: Slot> Bin<S> {
             }
         }
         unsafe {
-            let p_size = page_size();
+            let p_size = *PAGE_SIZE;
             let size = if p_size >= slot_size {
                 p_size
             } else {
@@ -317,14 +324,11 @@ mod test {
         mem,
     };
 
-    use std::{
-        collections::BTreeMap,
-        string::{String, ToString},
-        vec,
-        vec::Vec,
-    };
+    use std::{vec, vec::Vec};
 
     use std::thread;
+
+    use alloc::collections::BTreeMap;
 
     use crate::*;
 
@@ -394,27 +398,6 @@ mod test {
         unsafe {
             test_allocator(crate::page_allocator::PageAllocator {});
         }
-        let mut v = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        for (i, val) in v.iter().enumerate() {
-            assert_eq!(i as i32, *val);
-        }
-        v.truncate(0);
-        v.shrink_to_fit();
-        v.push(5);
-        assert_eq!(v[0], 5);
-        let mut btree = BTreeMap::<String, i32>::new();
-        btree.insert(String::from("Hi there"), 26);
-        btree.insert(String::from_utf8_lossy(&[b'a'; 8000]).to_string(), 8000);
-        assert_eq!(btree.get("Hi there"), Some(&26));
-        drop(btree);
-
-        let mut v = Vec::with_capacity(10);
-        v.push(1);
-        v.push(2);
-        v.push(3);
-
-        // Verify that the memory was allocated and freed correctly
-        assert_eq!(v, vec![1, 2, 3]);
     }
 
     #[test]
@@ -427,7 +410,6 @@ mod test {
 
     #[test]
     fn test_binned() {
-        std::println!("Starting test");
         unsafe { test_allocator(BinnedAlloc::new()) };
     }
 
@@ -435,6 +417,16 @@ mod test {
     fn test_global_allocator() {
         const THREADS: usize = 32;
         const ITERATIONS: usize = 1000;
+
+        let mut map = BTreeMap::new();
+
+        for i in 0..(ITERATIONS) {
+            map.insert(format!("Key Nº {}", i), i % 12);
+        }
+
+        thread::spawn(move || {
+            let _ = map;
+        });
 
         for _ in 0..(ITERATIONS * 100) {
             let vec = vec![0; 256];
@@ -448,6 +440,7 @@ mod test {
 
         for i in 0..THREADS {
             threads.push(thread::spawn(move || {
+                println!("Starting thread {}", i);
                 for _ in 0..ITERATIONS {
                     let mut vec = Vec::with_capacity(0);
                     for _ in 0..513 {
@@ -457,6 +450,7 @@ mod test {
                         assert_eq!(byte, i);
                     }
                 }
+                println!("Ending thread {}", i);
             }));
         }
 

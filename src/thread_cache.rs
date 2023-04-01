@@ -94,6 +94,8 @@ unsafe impl GlobalAlloc for BinnedAlloc {
             ..=1024 => bins.bin1024.alloc(),
             ..=2048 => bins.bin2048.alloc(),
             ..=4096 => bins.bin4096.alloc(),
+            ..=8192 => bins.bin8192.alloc(),
+            ..=16384 => bins.bin16384.alloc(),
             _ => PAGE_ALLOCATOR.alloc(layout),
         }
     }
@@ -112,15 +114,17 @@ unsafe impl GlobalAlloc for BinnedAlloc {
             ..=1024 => bins.bin1024.dealloc(ptr),
             ..=2048 => bins.bin2048.dealloc(ptr),
             ..=4096 => bins.bin4096.dealloc(ptr),
+            ..=8192 => bins.bin8192.dealloc(ptr),
+            ..=16384 => bins.bin16384.dealloc(ptr),
             _ => PAGE_ALLOCATOR.dealloc(ptr, layout),
         }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if layout.pad_to_align().size() > 4096
+        if layout.pad_to_align().size() > 16384
             && Layout::from_size_align_unchecked(new_size, layout.align())
                 .pad_to_align()
                 .size()
-                > 4096
+                > 16384
         {
             return PAGE_ALLOCATOR.realloc(ptr, layout, new_size);
         }
