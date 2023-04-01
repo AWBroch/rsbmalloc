@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(any(test, feature = "std")), no_std)]
 
 use core::{
     alloc::{GlobalAlloc, Layout},
@@ -9,6 +9,8 @@ use core::{
 
 use page_allocator::{page_size, PAGE_ALLOCATOR};
 use spin::Mutex;
+#[cfg(feature = "std")]
+use thread_cache::ThreadCache;
 
 mod page_allocator;
 #[cfg(feature = "std")]
@@ -21,6 +23,8 @@ static BINNED_ALLOC: BinnedAlloc = BinnedAlloc::new();
 pub struct BinnedAlloc {
     #[cfg(not(feature = "std"))]
     bins: Bins,
+    #[cfg(feature = "std")]
+    thread_cache: ThreadCache,
 }
 
 impl BinnedAlloc {
@@ -28,6 +32,8 @@ impl BinnedAlloc {
         Self {
             #[cfg(not(feature = "std"))]
             bins: Bins::new(),
+            #[cfg(feature = "std")]
+            thread_cache: ThreadCache::new(),
         }
     }
 }
@@ -35,6 +41,7 @@ impl BinnedAlloc {
 #[cfg(not(feature = "std"))]
 unsafe impl GlobalAlloc for BinnedAlloc {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
+        ALLOCS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let size = layout.pad_to_align().size();
         match size {
             ..=4 => self.bins.bin4.alloc(),
@@ -53,6 +60,7 @@ unsafe impl GlobalAlloc for BinnedAlloc {
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
         let size = layout.pad_to_align().size();
+        DEALLOCS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         match size {
             ..=4 => self.bins.bin4.dealloc(ptr),
             ..=8 => self.bins.bin8.dealloc(ptr),
@@ -69,6 +77,7 @@ unsafe impl GlobalAlloc for BinnedAlloc {
         }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        REALLOCS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         if layout.pad_to_align().size() > 4096
             && Layout::from_size_align_unchecked(new_size, layout.align())
                 .pad_to_align()
@@ -209,14 +218,17 @@ impl<S: Slot> From<*mut S> for FreeList<S> {
 
 struct Bin<S: Slot> {
     free_head: Mutex<FreeList<S>>,
-    page: Mutex<Option<Slice>>,
+    page: Mutex<Slice>,
 }
 
 impl<S: Slot> Default for Bin<S> {
     fn default() -> Self {
         Self {
             free_head: Mutex::new(FreeList::null()),
-            page: Mutex::new(None),
+            page: Mutex::new(Slice {
+                ptr: core::ptr::null_mut(),
+                len: 0,
+            }),
         }
     }
 }
@@ -237,15 +249,13 @@ impl<S: Slot> Bin<S> {
     fn add_one(&self) -> *mut S {
         let slot_size = mem::size_of::<S>();
         let mut page = self.page.lock();
-        if let Some(Slice { ptr, len }) = *page {
-            if len >= slot_size {
-                let ret = ptr as *mut S;
-                *page = unsafe {
-                    Some(Slice {
-                        ptr: ptr.add(slot_size),
-                        len: len - slot_size,
-                    })
-                };
+        if !page.ptr.is_null() {
+            if page.len >= slot_size {
+                let ret = page.ptr as *mut S;
+                unsafe {
+                    page.ptr = page.ptr.add(slot_size);
+                    page.len -= slot_size;
+                }
                 return ret;
             }
         }
@@ -261,10 +271,8 @@ impl<S: Slot> Bin<S> {
                 mem::align_of::<S>(),
             ));
             let ret = ptr as *mut S;
-            (*page) = Some(Slice {
-                ptr: ptr.add(slot_size),
-                len: p_size - slot_size,
-            });
+            page.ptr = ptr.add(slot_size);
+            page.len = size - slot_size;
             ret
         }
     }
@@ -292,7 +300,10 @@ impl<S: Slot> Bin<S> {
     const fn new() -> Self {
         Self {
             free_head: Mutex::new(FreeList::null()),
-            page: Mutex::new(None),
+            page: Mutex::new(Slice {
+                ptr: core::ptr::null_mut(),
+                len: 0,
+            }),
         }
     }
 }
@@ -303,9 +314,7 @@ mod test {
     extern crate std;
     use core::{
         alloc::{GlobalAlloc, Layout},
-        hash::{Hash, Hasher},
         mem,
-        num::Wrapping,
     };
 
     use std::{
@@ -317,10 +326,7 @@ mod test {
 
     use std::thread;
 
-    use crate::{
-        thread_cache::{thread_id, SimpleHasher},
-        *,
-    };
+    use crate::*;
 
     #[repr(align(512))]
     struct Big {
@@ -430,7 +436,7 @@ mod test {
         const THREADS: usize = 32;
         const ITERATIONS: usize = 1000;
 
-        for _ in 0..ITERATIONS {
+        for _ in 0..(ITERATIONS * 100) {
             let vec = vec![0; 256];
             for word in &vec {
                 assert_eq!(*word, 0);
@@ -442,13 +448,6 @@ mod test {
 
         for i in 0..THREADS {
             threads.push(thread::spawn(move || {
-                let mut hasher = SimpleHasher(Wrapping(0));
-                thread_id().hash(&mut hasher);
-                println!(
-                    "Thread ID: {}, Thread-Cache: {}",
-                    thread_id(),
-                    (hasher.finish() as usize % (num_cpus::get())) as isize
-                );
                 for _ in 0..ITERATIONS {
                     let mut vec = Vec::with_capacity(0);
                     for _ in 0..513 {

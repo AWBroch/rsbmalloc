@@ -8,8 +8,9 @@ edition = "2021"
 [dependencies]
 libc = "0.2"
 num_cpus = {version = "1", optional = true}
+once_cell = {version = "1", optional = true}
 spin = {version = "0.9", default-features = false, features = ["spin_mutex"]}
 
 [features]
 default = ["std"]
-std = ["dep:num_cpus"]
+std = ["dep:num_cpus", "dep:once_cell"]

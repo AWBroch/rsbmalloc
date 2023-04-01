@@ -1,17 +1,15 @@
+use once_cell::sync::OnceCell;
+
 use crate::*;
 use core::{
-    cell::UnsafeCell,
     hash::{Hash, Hasher},
     num::Wrapping,
     ptr,
 };
-use std::{alloc::GlobalAlloc, collections::hash_map::DefaultHasher, sync::Once};
-
-static CREATE_BINS: Once = Once::new();
-pub(crate) static THREAD_CACHE: ThreadCache = ThreadCache::new();
+use std::{alloc::GlobalAlloc, collections::hash_map::DefaultHasher};
 
 pub(crate) struct ThreadCache {
-    pub bins: UnsafeCell<BinsSlice>,
+    pub bins: OnceCell<BinsSlice>,
 }
 
 unsafe impl Sync for ThreadCache {}
@@ -22,23 +20,18 @@ pub(crate) struct BinsSlice {
 }
 
 impl ThreadCache {
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
-            bins: UnsafeCell::new(BinsSlice {
-                ptr: ptr::null_mut(),
-                len: 0,
-            }),
+            bins: OnceCell::new(),
         }
     }
     /// Put in any usize, does the modulo-getting
-    unsafe fn get_thread_cache(&self, id: usize) -> Bins {
-        let bins_slice = self.bins.get().read();
+    unsafe fn get_thread_cache<'a>(&'a self, id: usize) -> &'a mut Bins {
+        let bins_slice = self.bins.get_or_init(init_bins);
         let mut hasher = DefaultHasher::new();
         id.hash(&mut hasher);
-        bins_slice
-            .ptr
-            .offset((hasher.finish() as usize % bins_slice.len) as isize)
-            .read()
+        let offset = (hasher.finish() as usize % bins_slice.len) as isize;
+        &mut *bins_slice.ptr.offset(offset)
     }
 }
 
@@ -65,31 +58,29 @@ pub(crate) fn thread_id() -> usize {
     unsafe { libc::GetCurrentThreadId() as usize }
 }
 
-fn init_bins() {
-    let num_bins = num_cpus::get();
+fn init_bins() -> BinsSlice {
+    let num_bins = num_cpus::get() * 4;
     unsafe {
-        let mut buf = PAGE_ALLOCATOR.alloc(
+        let buf = PAGE_ALLOCATOR.alloc(
             Layout::from_size_align(
                 num_bins * Layout::new::<Bins>().pad_to_align().size(),
                 mem::align_of::<Bins>(),
             )
             .unwrap(),
         ) as *mut Bins;
-        for _ in 0..num_bins {
-            ptr::write(buf, Bins::new());
-            buf = buf.offset(1);
+        for i in 0..num_bins {
+            ptr::write(buf.offset(i as isize), Bins::new());
         }
-        THREAD_CACHE.bins.get().write(BinsSlice {
+        BinsSlice {
             ptr: buf,
             len: num_bins,
-        });
+        }
     }
 }
 
 unsafe impl GlobalAlloc for BinnedAlloc {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        CREATE_BINS.call_once(init_bins);
-        let bins = THREAD_CACHE.get_thread_cache(thread_id());
+        let bins = self.thread_cache.get_thread_cache(thread_id());
         let size = layout.pad_to_align().size();
         match size {
             ..=4 => bins.bin4.alloc(),
@@ -107,8 +98,7 @@ unsafe impl GlobalAlloc for BinnedAlloc {
         }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
-        CREATE_BINS.call_once(init_bins);
-        let bins = THREAD_CACHE.get_thread_cache(thread_id());
+        let bins = self.thread_cache.get_thread_cache(thread_id());
         let size = layout.pad_to_align().size();
         match size {
             ..=4 => bins.bin4.dealloc(ptr),
