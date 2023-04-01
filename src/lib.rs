@@ -12,7 +12,7 @@ use spin::Mutex;
 #[cfg(feature = "std")]
 use thread_cache::ThreadCache;
 
-mod page_allocator;
+pub mod page_allocator;
 #[cfg(feature = "std")]
 mod thread_cache;
 

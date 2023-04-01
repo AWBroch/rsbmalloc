@@ -10,7 +10,7 @@ lazy_static! {
 }
 
 #[cfg(unix)]
-pub fn page_size() -> usize {
+fn page_size() -> usize {
     #[cfg(target_os = "macos")]
     unsafe {
         libc::vm_page_size
@@ -22,7 +22,7 @@ pub fn page_size() -> usize {
 }
 
 #[cfg(windows)]
-pub fn page_size() -> usize {
+fn page_size() -> usize {
     unsafe {
         let mut info = core::mem::zeroed();
         libc::GetSystemInfo(&mut info);
@@ -62,15 +62,6 @@ unsafe impl GlobalAlloc for PageAllocator {
                 -1,
                 0,
             );
-            // match self.next_mmap_addr_hint.compare_exchange(
-            //     hint,
-            //     hint + aligned_layout.size(),
-            //     Ordering::AcqRel,
-            //     Ordering::Relaxed,
-            // ) {
-            //     Ok(_) => (),
-            //     Err(_) => return ptr::null_mut(),
-            // };
             addr as _
         }
     }

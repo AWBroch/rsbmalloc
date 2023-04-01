@@ -3,6 +3,7 @@ name = "binned-alloc-rs"
 version = "0.2.0"
 edition = "2021"
 rust-version = "1.60"
+tags = ["allocator", "no_std", "binned-alloc"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
