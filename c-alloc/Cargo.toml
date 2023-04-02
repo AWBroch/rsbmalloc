@@ -1,0 +1,19 @@
+[package]
+name = "rsbmallocc"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.60"
+tags = ["allocator", "no_std", "binned-alloc"]
+license = "MIT/Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rsbmalloc = {path = "../rust-alloc"}
+
+[features]
+default = ["std"]
+std = ["rsbmalloc/std"]

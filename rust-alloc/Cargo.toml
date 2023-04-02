@@ -1,0 +1,20 @@
+[package]
+name = "rsbmalloc"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.60"
+tags = ["allocator", "no_std", "binned-alloc"]
+license = "MIT/Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lazy_static = {version = "1", default-features = false, features = ["spin_no_std"]}
+libc = "0.2"
+num_cpus = {version = "1", optional = true}
+once_cell = {version = "1", optional = true}
+spin = {version = "0.9", default-features = false, features = ["spin_mutex"]}
+
+[features]
+default = ["std"]
+std = ["dep:num_cpus", "dep:once_cell"]
