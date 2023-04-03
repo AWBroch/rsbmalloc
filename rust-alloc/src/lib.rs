@@ -327,10 +327,11 @@ mod test {
     extern crate std;
     use core::{
         alloc::{GlobalAlloc, Layout},
+        hint::black_box,
         mem,
     };
 
-    use std::{vec, vec::Vec};
+    use std::{panic::catch_unwind, vec, vec::Vec};
 
     use std::thread;
 
@@ -463,5 +464,10 @@ mod test {
         for thread in threads {
             thread.join().unwrap();
         }
+
+        assert!(catch_unwind(|| {
+            panic!("Panic!!! Code: {}", black_box(12));
+        })
+        .is_err());
     }
 }

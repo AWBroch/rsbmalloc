@@ -8,12 +8,13 @@ pub(crate) struct ThreadCache {
     pub bins: OnceCell<BinsSlice>,
 }
 
-unsafe impl Sync for ThreadCache {}
-
 pub(crate) struct BinsSlice {
     pub ptr: *mut Bins,
     pub len: usize,
 }
+
+unsafe impl Sync for BinsSlice {}
+unsafe impl Send for BinsSlice {}
 
 impl ThreadCache {
     pub(crate) const fn new() -> Self {
