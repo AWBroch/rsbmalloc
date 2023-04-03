@@ -6,6 +6,7 @@ rust-version = "1.60"
 license = "MIT OR Apache-2.0"
 readme = "../README.md"
 repository = "https://github.com/AWBroch/binned-alloc-rs"
+homepage = "https://github.com/AWBroch/binned-alloc-rs"
 categories = ["memory-management"]
 keywords = ["allocator", "no_std", "binned_allocator"]
 description = "A simple but fast binned allocator for Rust. Single-threaded for no_std, multi-threaded otherwise"
