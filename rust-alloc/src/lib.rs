@@ -7,7 +7,7 @@ use core::{
     ptr::NonNull,
 };
 
-use page_allocator::{PAGE_ALLOCATOR, PAGE_SIZE};
+use page_allocator::PAGE_ALLOCATOR;
 use spin::Mutex;
 #[cfg(feature = "std")]
 use thread_cache::ThreadCache;
@@ -19,6 +19,8 @@ mod thread_cache;
 #[cfg(test)]
 #[cfg_attr(test, global_allocator)]
 static BINNED_ALLOC: BinnedAlloc = BinnedAlloc::new();
+
+const RSB_CHUNK_SIZE: usize = 0x10000;
 
 pub struct BinnedAlloc {
     #[cfg(not(feature = "std"))]
@@ -56,6 +58,8 @@ unsafe impl GlobalAlloc for BinnedAlloc {
             ..=4096 => self.bins.bin4096.alloc(),
             ..=8192 => self.bins.bin8192.alloc(),
             ..=16384 => self.bins.bin16384.alloc(),
+            ..=0x8000 => self.bins.bin32ki.alloc(),
+            ..=0x10000 => self.bins.bin64ki.alloc(),
             _ => PAGE_ALLOCATOR.alloc(layout),
         }
     }
@@ -75,15 +79,17 @@ unsafe impl GlobalAlloc for BinnedAlloc {
             ..=4096 => self.bins.bin4096.dealloc(ptr),
             ..=8192 => self.bins.bin8192.dealloc(ptr),
             ..=16384 => self.bins.bin16384.dealloc(ptr),
+            ..=0x8000 => self.bins.bin32ki.dealloc(ptr),
+            ..=0x10000 => self.bins.bin64ki.dealloc(ptr),
             _ => PAGE_ALLOCATOR.dealloc(ptr, layout),
         }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if layout.pad_to_align().size() > 16384
+        if layout.pad_to_align().size() > RSB_CHUNK_SIZE
             && Layout::from_size_align_unchecked(new_size, layout.align())
                 .pad_to_align()
                 .size()
-                > 16384
+                > RSB_CHUNK_SIZE
         {
             return PAGE_ALLOCATOR.realloc(ptr, layout, new_size);
         }
@@ -111,6 +117,8 @@ pub(crate) struct Bins {
     pub(crate) bin4096: Bin<Slot4096>,
     pub(crate) bin8192: Bin<Slot8192>,
     pub(crate) bin16384: Bin<Slot16384>,
+    pub(crate) bin32ki: Bin<Slot32Ki>,
+    pub(crate) bin64ki: Bin<Slot64Ki>,
 }
 
 impl Bins {
@@ -129,6 +137,8 @@ impl Bins {
             bin4096: Bin::new(),
             bin8192: Bin::new(),
             bin16384: Bin::new(),
+            bin32ki: Bin::new(),
+            bin64ki: Bin::new(),
         }
     }
 }
@@ -238,19 +248,21 @@ impl<S: Slot> Default for Bin<S> {
     }
 }
 
-slot!(Slot4, 4);
-slot!(Slot8, 8);
-slot!(Slot16, 16);
-slot!(Slot32, 32);
-slot!(Slot64, 64);
-slot!(Slot128, 128);
-slot!(Slot256, 256);
-slot!(Slot512, 512);
-slot!(Slot1024, 1024);
-slot!(Slot2048, 2048);
-slot!(Slot4096, 4096);
-slot!(Slot8192, 8192);
-slot!(Slot16384, 16384);
+slot!(Slot4, 0x4);
+slot!(Slot8, 0x8);
+slot!(Slot16, 0x10);
+slot!(Slot32, 0x20);
+slot!(Slot64, 0x40);
+slot!(Slot128, 0x80);
+slot!(Slot256, 0x100);
+slot!(Slot512, 0x200);
+slot!(Slot1024, 0x400);
+slot!(Slot2048, 0x800);
+slot!(Slot4096, 0x1000);
+slot!(Slot8192, 0x2000);
+slot!(Slot16384, 0x4000);
+slot!(Slot32Ki, 0x8000);
+slot!(Slot64Ki, 0x10000);
 
 impl<S: Slot> Bin<S> {
     fn add_one(&self) -> *mut S {
@@ -267,19 +279,13 @@ impl<S: Slot> Bin<S> {
             }
         }
         unsafe {
-            let p_size = *PAGE_SIZE;
-            let size = if p_size >= slot_size {
-                p_size
-            } else {
-                slot_size
-            };
             let ptr = PAGE_ALLOCATOR.alloc(Layout::from_size_align_unchecked(
-                size,
+                RSB_CHUNK_SIZE,
                 mem::align_of::<S>(),
             ));
             let ret = ptr as *mut S;
             page.ptr = ptr.add(slot_size);
-            page.len = size - slot_size;
+            page.len = RSB_CHUNK_SIZE - slot_size;
             ret
         }
     }

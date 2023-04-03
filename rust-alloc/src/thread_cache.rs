@@ -96,6 +96,8 @@ unsafe impl GlobalAlloc for BinnedAlloc {
             ..=4096 => bins.bin4096.alloc(),
             ..=8192 => bins.bin8192.alloc(),
             ..=16384 => bins.bin16384.alloc(),
+            ..=0x8000 => bins.bin32ki.alloc(),
+            ..=0x10000 => bins.bin64ki.alloc(),
             _ => PAGE_ALLOCATOR.alloc(layout),
         }
     }
@@ -116,6 +118,8 @@ unsafe impl GlobalAlloc for BinnedAlloc {
             ..=4096 => bins.bin4096.dealloc(ptr),
             ..=8192 => bins.bin8192.dealloc(ptr),
             ..=16384 => bins.bin16384.dealloc(ptr),
+            ..=0x8000 => bins.bin32ki.dealloc(ptr),
+            ..=0x10000 => bins.bin64ki.dealloc(ptr),
             _ => PAGE_ALLOCATOR.dealloc(ptr, layout),
         }
     }

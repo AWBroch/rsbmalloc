@@ -117,3 +117,91 @@ pub unsafe extern "C" fn posix_memalign(
         return 0;
     }
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn rsbmalloc(size: usize) -> *mut c_void {
+    if size == 0 {
+        ptr::null_mut()
+    } else {
+        let ptr = ALLOCATOR.alloc(create_alloc_layout(size)) as *mut usize;
+        ptr.write(size);
+        ptr.add(1) as *mut c_void
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsbfree(ptr: *mut c_void) {
+    if ptr.is_null() {
+        return;
+    }
+    let ptr = (ptr as *mut usize).sub(1);
+    let size = ptr.read();
+    if size == 0 {
+        return;
+    } else {
+        ALLOCATOR.dealloc(ptr as *mut u8, create_alloc_layout(size));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsbcalloc(count: usize, size: usize) -> *mut c_void {
+    let ptr = ALLOCATOR.alloc_zeroed(create_calloc_layout(count, size)) as *mut usize;
+    ptr.write(count * size);
+    ptr.add(1) as *mut c_void
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsbrealloc(ptr: *mut c_void, size: usize) -> *mut c_void {
+    if ptr.is_null() {
+        malloc(size)
+    } else {
+        let ptr = (ptr as *mut usize).sub(1);
+        let size = ptr.read();
+        let layout = create_alloc_layout(size);
+        let new_ptr =
+            ALLOCATOR.realloc(ptr as *mut u8, layout, size + mem::size_of::<usize>()) as *mut usize;
+        new_ptr.write(size);
+        new_ptr.add(1) as *mut c_void
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsbaligned_alloc(alignment: usize, size: usize) -> *mut c_void {
+    let usize_size = max(mem::size_of::<usize>(), alignment);
+    let ptr = ALLOCATOR
+        .alloc(Layout::from_size_align_unchecked(
+            size + usize_size,
+            alignment,
+        ))
+        .add(usize_size) as *mut usize;
+    ptr.write(size);
+    ptr.add(1) as *mut c_void
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsbvalloc(size: usize) -> *mut c_void {
+    aligned_alloc(*PAGE_SIZE, size)
+}
+#[no_mangle]
+pub unsafe extern "C" fn rsbpvalloc(size: usize) -> *mut c_void {
+    aligned_alloc(*PAGE_SIZE, size)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsbmemalign(alignment: usize, size: usize) -> *mut c_void {
+    aligned_alloc(alignment, size)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsbposix_memalign(
+    memptr: *mut *mut c_void,
+    alignment: usize,
+    size: usize,
+) -> c_int {
+    *memptr = aligned_alloc(alignment, size);
+    if (*memptr).is_null() {
+        return 1;
+    } else {
+        return 0;
+    }
+}
