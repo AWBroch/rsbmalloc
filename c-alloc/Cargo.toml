@@ -8,6 +8,7 @@ readme = "../README.md"
 repository = "https://github.com/AWBroch/binned-alloc-rs"
 categories = ["memory-management"]
 keywords = ["allocator", "no_std", "binned_allocator", "c_bindings"]
+description = "C bindings for rsbmalloc, providing both standard functions and prefixed (rsb-*) functions"
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
