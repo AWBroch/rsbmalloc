@@ -1,12 +1,8 @@
 use once_cell::sync::OnceCell;
 
 use crate::*;
-use core::{
-    hash::{Hash, Hasher},
-    num::Wrapping,
-    ptr,
-};
-use std::{alloc::GlobalAlloc, collections::hash_map::DefaultHasher};
+use core::ptr;
+use std::alloc::GlobalAlloc;
 
 pub(crate) struct ThreadCache {
     pub bins: OnceCell<BinsSlice>,
@@ -28,24 +24,20 @@ impl ThreadCache {
     /// Put in any usize, does the modulo-getting
     unsafe fn get_thread_cache<'a>(&'a self, id: usize) -> &'a mut Bins {
         let bins_slice = self.bins.get_or_init(init_bins);
-        let mut hasher = DefaultHasher::new();
-        id.hash(&mut hasher);
-        let offset = (hasher.finish() as usize % bins_slice.len) as isize;
+        let hashed = hash_usize(id);
+        let offset = (hashed % bins_slice.len) as isize;
         &mut *bins_slice.ptr.offset(offset)
     }
 }
 
-pub(crate) struct SimpleHasher(pub(crate) Wrapping<u64>);
-
-impl Hasher for SimpleHasher {
-    fn finish(&self) -> u64 {
-        self.0 .0
-    }
-    fn write(&mut self, bytes: &[u8]) {
-        for byte in bytes {
-            self.0 += *byte as u64;
-        }
-    }
+fn hash_usize(input: usize) -> usize {
+    let mut output = input as u64;
+    output ^= output >> 33;
+    output = output.wrapping_mul(0xff51afd7ed558ccd);
+    output ^= output >> 33;
+    output = output.wrapping_mul(0xc4ceb9fe1a85ec53);
+    output ^= output >> 33;
+    output as usize
 }
 
 #[cfg(unix)]
