@@ -18,18 +18,18 @@ mod thread_cache;
 
 #[cfg(test)]
 #[cfg_attr(test, global_allocator)]
-static BINNED_ALLOC: BinnedAlloc = BinnedAlloc::new();
+static BINNED_ALLOC: RSBMalloc = RSBMalloc::new();
 
 const RSB_CHUNK_SIZE: usize = 0x10000;
 
-pub struct BinnedAlloc {
+pub struct RSBMalloc {
     #[cfg(not(feature = "std"))]
     bins: Bins,
     #[cfg(feature = "std")]
     thread_cache: ThreadCache,
 }
 
-impl BinnedAlloc {
+impl RSBMalloc {
     pub const fn new() -> Self {
         Self {
             #[cfg(not(feature = "std"))]
@@ -41,7 +41,7 @@ impl BinnedAlloc {
 }
 
 #[cfg(not(feature = "std"))]
-unsafe impl GlobalAlloc for BinnedAlloc {
+unsafe impl GlobalAlloc for RSBMalloc {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
         let size = layout.pad_to_align().size();
         match size {
@@ -417,7 +417,7 @@ mod test {
 
     #[test]
     fn test_binned() {
-        unsafe { test_allocator(BinnedAlloc::new()) };
+        unsafe { test_allocator(RSBMalloc::new()) };
     }
 
     #[test]

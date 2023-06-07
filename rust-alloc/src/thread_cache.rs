@@ -71,7 +71,7 @@ fn init_bins() -> BinsSlice {
     }
 }
 
-unsafe impl GlobalAlloc for BinnedAlloc {
+unsafe impl GlobalAlloc for RSBMalloc {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
         let bins = self.thread_cache.get_thread_cache(thread_id());
         let size = layout.pad_to_align().size();

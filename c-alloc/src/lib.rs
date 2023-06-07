@@ -6,9 +6,9 @@ use core::{
     ffi::{c_int, c_void},
     mem, ptr,
 };
-use rsbmalloc::{page_allocator::PAGE_SIZE, BinnedAlloc};
+use rsbmalloc::{page_allocator::PAGE_SIZE, RSBMalloc};
 
-static ALLOCATOR: BinnedAlloc = BinnedAlloc::new();
+static ALLOCATOR: RSBMalloc = RSBMalloc::new();
 
 fn create_alloc_layout(size: usize) -> Layout {
     Layout::from_size_align(
