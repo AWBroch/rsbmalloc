@@ -5,8 +5,8 @@ edition = "2021"
 rust-version = "1.60"
 license = "MIT OR Apache-2.0"
 readme = "../README.md"
-repository = "https://github.com/AWBroch/binned-alloc-rs"
-homepage = "https://github.com/AWBroch/binned-alloc-rs"
+repository = "https://github.com/AWBroch/rsbmalloc"
+homepage = "https://github.com/AWBroch/rsbmalloc"
 categories = ["memory-management"]
 keywords = ["allocator", "no_std", "binned_allocator"]
 description = "A simple but fast binned allocator for Rust. Single-threaded for no_std, multi-threaded otherwise"
@@ -14,11 +14,13 @@ description = "A simple but fast binned allocator for Rust. Single-threaded for 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lazy_static = {version = "1", default-features = false, features = ["spin_no_std"]}
+lazy_static = { version = "1", default-features = false, features = [
+  "spin_no_std",
+] }
 libc = "0.2"
-num_cpus = {version = "1", optional = true}
-once_cell = {version = "1", optional = true}
-spin = {version = "0.9", default-features = false, features = ["spin_mutex"]}
+num_cpus = { version = "1", optional = true }
+once_cell = { version = "1", optional = true }
+spin = { version = "0.9", default-features = false, features = ["spin_mutex"] }
 
 [features]
 default = ["std"]

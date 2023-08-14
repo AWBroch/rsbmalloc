@@ -5,8 +5,8 @@ edition = "2021"
 rust-version = "1.60"
 license = "MIT OR Apache-2.0"
 readme = "../README.md"
-repository = "https://github.com/AWBroch/binned-alloc-rs"
-homepage = "https://github.com/AWBroch/binned-alloc-rs"
+repository = "https://github.com/AWBroch/rsbmalloc"
+homepage = "https://github.com/AWBroch/rsbmalloc"
 categories = ["memory-management"]
 keywords = ["allocator", "no_std", "binned_allocator", "c_bindings"]
 description = "C bindings for rsbmalloc, providing both standard functions and prefixed (rsb-*) functions"
@@ -17,7 +17,7 @@ crate-type = ["cdylib", "staticlib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rsbmalloc = {path = "../rust-alloc"}
+rsbmalloc = { path = "../rust-alloc" }
 
 [features]
 default = ["std"]
