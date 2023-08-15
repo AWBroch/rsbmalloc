@@ -117,11 +117,11 @@ unsafe impl GlobalAlloc for RSBMalloc {
         }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if layout.pad_to_align().size() > 16384
+        if layout.pad_to_align().size() > RSB_CHUNK_SIZE
             && Layout::from_size_align_unchecked(new_size, layout.align())
                 .pad_to_align()
                 .size()
-                > 16384
+                > RSB_CHUNK_SIZE
         {
             return PAGE_ALLOCATOR.realloc(ptr, layout, new_size);
         }
