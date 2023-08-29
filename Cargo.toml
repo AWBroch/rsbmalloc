@@ -1,3 +1,4 @@
 [workspace]
 members = ["rust-alloc", "c-alloc"]
 default-members = ["rust-alloc"]
+resolver = "2"

@@ -73,6 +73,9 @@ fn init_bins() -> BinsSlice {
 
 unsafe impl GlobalAlloc for RSBMalloc {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
+        if layout.align() > MAX_ALIGN {
+            return ptr::null_mut();
+        }
         let bins = self.thread_cache.get_thread_cache(thread_id());
         let size = layout.pad_to_align().size();
         match size {
@@ -117,6 +120,9 @@ unsafe impl GlobalAlloc for RSBMalloc {
         }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        if layout.align() > MAX_ALIGN {
+            return ptr::null_mut();
+        }
         if layout.pad_to_align().size() > RSB_CHUNK_SIZE
             && Layout::from_size_align_unchecked(new_size, layout.align())
                 .pad_to_align()

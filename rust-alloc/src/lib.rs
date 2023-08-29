@@ -1,5 +1,7 @@
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 
+#[cfg(not(feature = "std"))]
+use core::ptr;
 use core::{
     alloc::{GlobalAlloc, Layout},
     cmp::min,
@@ -21,6 +23,7 @@ mod thread_cache;
 static BINNED_ALLOC: RSBMalloc = RSBMalloc::new();
 
 const RSB_CHUNK_SIZE: usize = 0x10000;
+const MAX_ALIGN: usize = 0x1000;
 
 pub struct RSBMalloc {
     #[cfg(not(feature = "std"))]
@@ -43,6 +46,9 @@ impl RSBMalloc {
 #[cfg(not(feature = "std"))]
 unsafe impl GlobalAlloc for RSBMalloc {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
+        if layout.align() > MAX_ALIGN {
+            return ptr::null_mut();
+        }
         let size = layout.pad_to_align().size();
         match size {
             ..=4 => self.bins.bin4.alloc(),
@@ -85,6 +91,9 @@ unsafe impl GlobalAlloc for RSBMalloc {
         }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        if layout.align() > MAX_ALIGN {
+            return ptr::null_mut();
+        }
         if layout.pad_to_align().size() > RSB_CHUNK_SIZE
             && Layout::from_size_align_unchecked(new_size, layout.align())
                 .pad_to_align()
@@ -154,8 +163,17 @@ pub(crate) trait Slot {
 }
 
 macro_rules! slot {
+    ($name:ident, $len:literal, $align:literal) => {
+        slot_align!($name, $len, $align);
+    };
     ($name:ident, $len:literal) => {
-        #[repr(align($len))]
+        slot_align!($name, $len, $len);
+    };
+}
+
+macro_rules! slot_align {
+    ($name:ident, $len:literal,$align:literal) => {
+        #[repr(align($align))]
         pub(crate) union $name {
             pub(crate) buf: [u8; $len],
             pub(crate) next: Option<NonNull<$name>>,
@@ -249,7 +267,7 @@ impl<S: Slot> Default for Bin<S> {
 }
 
 slot!(Slot4, 0x4);
-slot!(Slot8, 0x8);
+slot!(Slot8, 0x8, 0x4);
 slot!(Slot16, 0x10);
 slot!(Slot32, 0x20);
 slot!(Slot64, 0x40);
@@ -259,10 +277,10 @@ slot!(Slot512, 0x200);
 slot!(Slot1024, 0x400);
 slot!(Slot2048, 0x800);
 slot!(Slot4096, 0x1000);
-slot!(Slot8192, 0x2000);
-slot!(Slot16384, 0x4000);
-slot!(Slot32Ki, 0x8000);
-slot!(Slot64Ki, 0x10000);
+slot!(Slot8192, 0x2000, 0x1000);
+slot!(Slot16384, 0x4000, 0x1000);
+slot!(Slot32Ki, 0x8000, 0x1000);
+slot!(Slot64Ki, 0x10000, 0x1000);
 
 impl<S: Slot> Bin<S> {
     fn add_one(&self) -> *mut S {
