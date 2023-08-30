@@ -13,3 +13,5 @@ It implements the `GlobalAllocator` trait, and comes with a single-threaded `no_
 `rsbmalloc` also exposes the page-only allocator it uses under the hood.
 
 A [Broch Web Solutions](https://www.brochweb.com/) project.
+
+Check out [the blog post](https://www.brochweb.com/blog/post/how-to-create-a-custom-memory-allocator-in-rust/) for more info.
