@@ -43,7 +43,7 @@ fn hash_usize(input: usize) -> usize {
 
 #[cfg(unix)]
 pub(crate) fn thread_id() -> usize {
-    unsafe { libc::pthread_self() }
+    unsafe { libc::pthread_self().try_into().unwrap() }
 }
 
 #[cfg(windows)]
