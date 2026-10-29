@@ -16,6 +16,9 @@ lazy_static! {
 
 #[cfg(unix)]
 fn page_size() -> usize {
+    #[cfg(target_os = "macos")]
+    let size = unsafe { libc::vm_page_size };
+    #[cfg(not(target_os = "macos"))]
     let size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if size > 0 {
         size as usize
