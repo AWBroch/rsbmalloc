@@ -157,10 +157,6 @@ impl Bins {
 }
 
 pub(crate) trait Slot {
-    /// Size is not always the size of the type
-    /// For example, a 4 byte size would be valid but the type would be
-    /// pointer-sized
-    const SIZE: usize;
     unsafe fn buf(&mut self) -> *mut u8;
     unsafe fn next(&self) -> Option<NonNull<Self>>;
     unsafe fn set_next(&mut self, next: Option<NonNull<Self>>);
@@ -184,8 +180,6 @@ macro_rules! slot_align {
         }
 
         impl Slot for $name {
-            const SIZE: usize = $len;
-
             #[inline(always)]
             unsafe fn buf(&mut self) -> *mut u8 {
                 &mut self.buf[..] as *mut [u8] as *mut u8
