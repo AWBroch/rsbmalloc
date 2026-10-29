@@ -6,6 +6,7 @@ use std::alloc::GlobalAlloc;
 
 pub(crate) struct ThreadCache {
     pub bins: OnceCell<BinsSlice>,
+    fallback: Bins,
 }
 
 pub(crate) struct BinsSlice {
@@ -20,14 +21,21 @@ impl ThreadCache {
     pub(crate) const fn new() -> Self {
         Self {
             bins: OnceCell::new(),
+            fallback: Bins::new(),
         }
     }
     /// Put in any usize, does the modulo-getting
-    unsafe fn get_thread_cache<'a>(&'a self, id: usize) -> &'a mut Bins {
-        let bins_slice = self.bins.get_or_init(init_bins);
-        let hashed = hash_usize(id);
-        let offset = (hashed % bins_slice.len) as isize;
-        &mut *bins_slice.ptr.offset(offset)
+    unsafe fn get_thread_cache(&self, id: usize) -> &Bins {
+        let bins_slice = match self.bins.get_or_try_init(init_bins) {
+            Ok(bins) => bins,
+            // No partially initialized cache is published. Use the embedded
+            // synchronized bins and retry cache initialization on a later call.
+            Err(()) => return &self.fallback,
+        };
+        let offset = hash_usize(id) % bins_slice.len;
+        // Caches may be shared by colliding thread IDs. Bin mutexes provide
+        // interior mutability; a mutable reference to Bins would be unsound.
+        &*bins_slice.ptr.add(offset)
     }
 }
 
@@ -43,31 +51,54 @@ fn hash_usize(input: usize) -> usize {
 
 #[cfg(unix)]
 pub(crate) fn thread_id() -> usize {
-    unsafe { libc::pthread_self().try_into().unwrap() }
+    unsafe { libc::pthread_self() as usize }
 }
 
 #[cfg(windows)]
 pub(crate) fn thread_id() -> usize {
-    unsafe { libc::GetCurrentThreadId() as usize }
+    unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() as usize }
 }
 
-fn init_bins() -> BinsSlice {
-    let num_bins = num_cpus::get() * 4;
+// CPU discovery must not allocate: num_cpus may read cgroup files using heap
+// allocations on Linux, recursively entering this cache initializer.
+#[cfg(unix)]
+fn cpu_count() -> Result<usize, ()> {
+    let count = unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) };
+    if count > 0 {
+        Ok(count as usize)
+    } else {
+        Err(())
+    }
+}
+
+#[cfg(windows)]
+fn cpu_count() -> Result<usize, ()> {
     unsafe {
-        let buf = PAGE_ALLOCATOR.alloc(
-            Layout::from_size_align(
-                num_bins * Layout::new::<Bins>().pad_to_align().size(),
-                mem::align_of::<Bins>(),
-            )
-            .unwrap(),
-        ) as *mut Bins;
-        for i in 0..num_bins {
-            ptr::write(buf.offset(i as isize), Bins::new());
+        let mut info = mem::zeroed();
+        windows_sys::Win32::System::SystemInformation::GetSystemInfo(&mut info);
+        match info.dwNumberOfProcessors {
+            0 => Err(()),
+            count => Ok(count as usize),
         }
-        BinsSlice {
+    }
+}
+
+fn init_bins() -> Result<BinsSlice, ()> {
+    let num_bins = cpu_count()?.checked_mul(4).filter(|&n| n != 0).ok_or(())?;
+    let size = num_bins.checked_mul(mem::size_of::<Bins>()).ok_or(())?;
+    let layout = Layout::from_size_align(size, mem::align_of::<Bins>()).map_err(|_| ())?;
+    unsafe {
+        let buf = PAGE_ALLOCATOR.alloc(layout) as *mut Bins;
+        if buf.is_null() {
+            return Err(());
+        }
+        for i in 0..num_bins {
+            ptr::write(buf.add(i), Bins::new());
+        }
+        Ok(BinsSlice {
             ptr: buf,
             len: num_bins,
-        }
+        })
     }
 }
 
@@ -123,15 +154,19 @@ unsafe impl GlobalAlloc for RSBMalloc {
         if layout.align() > MAX_ALIGN {
             return ptr::null_mut();
         }
+        let new_layout = match Layout::from_size_align(new_size, layout.align()) {
+            Ok(l) if new_size != 0 => l,
+            _ => return ptr::null_mut(),
+        };
         if layout.pad_to_align().size() > RSB_CHUNK_SIZE
-            && Layout::from_size_align_unchecked(new_size, layout.align())
-                .pad_to_align()
-                .size()
-                > RSB_CHUNK_SIZE
+            && new_layout.pad_to_align().size() > RSB_CHUNK_SIZE
         {
             return PAGE_ALLOCATOR.realloc(ptr, layout, new_size);
         }
-        let new_ptr = self.alloc(Layout::from_size_align_unchecked(new_size, layout.align()));
+        let new_ptr = self.alloc(new_layout);
+        if new_ptr.is_null() {
+            return ptr::null_mut();
+        }
         if new_ptr != ptr {
             core::ptr::copy_nonoverlapping(ptr, new_ptr, min(layout.size(), new_size));
             self.dealloc(ptr, layout);
