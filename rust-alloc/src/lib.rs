@@ -94,15 +94,19 @@ unsafe impl GlobalAlloc for RSBMalloc {
         if layout.align() > MAX_ALIGN {
             return ptr::null_mut();
         }
+        let new_layout = match Layout::from_size_align(new_size, layout.align()) {
+            Ok(l) if new_size != 0 => l,
+            _ => return ptr::null_mut(),
+        };
         if layout.pad_to_align().size() > RSB_CHUNK_SIZE
-            && Layout::from_size_align_unchecked(new_size, layout.align())
-                .pad_to_align()
-                .size()
-                > RSB_CHUNK_SIZE
+            && new_layout.pad_to_align().size() > RSB_CHUNK_SIZE
         {
             return PAGE_ALLOCATOR.realloc(ptr, layout, new_size);
         }
-        let new_ptr = self.alloc(Layout::from_size_align_unchecked(new_size, layout.align()));
+        let new_ptr = self.alloc(new_layout);
+        if new_ptr.is_null() {
+            return ptr::null_mut();
+        }
         if new_ptr != ptr {
             core::ptr::copy_nonoverlapping(ptr, new_ptr, min(layout.size(), new_size));
             self.dealloc(ptr, layout);
@@ -301,6 +305,9 @@ impl<S: Slot> Bin<S> {
                 RSB_CHUNK_SIZE,
                 mem::align_of::<S>(),
             ));
+            if ptr.is_null() {
+                return core::ptr::null_mut();
+            }
             let ret = ptr as *mut S;
             page.ptr = ptr.add(slot_size);
             page.len = RSB_CHUNK_SIZE - slot_size;
@@ -317,7 +324,8 @@ impl<S: Slot> Bin<S> {
             buf
         } else {
             drop(free_head);
-            (*self.add_one()).buf()
+            // The slot starts at its buffer; do not dereference a failed allocation.
+            self.add_one() as *mut u8
         }
     }
 

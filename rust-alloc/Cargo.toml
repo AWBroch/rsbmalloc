@@ -18,10 +18,18 @@ lazy_static = { version = "1", default-features = false, features = [
   "spin_no_std",
 ] }
 libc = "0.2"
-num_cpus = { version = "1", optional = true }
 once_cell = { version = "1", optional = true }
 spin = { version = "0.9", default-features = false, features = ["spin_mutex"] }
 
 [features]
 default = ["std"]
-std = ["dep:num_cpus", "dep:once_cell"]
+std = ["dep:once_cell"]
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.48", features = [
+  "Win32_Foundation",
+  "Win32_System_Diagnostics_Debug",
+  "Win32_System_Memory",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+] }
